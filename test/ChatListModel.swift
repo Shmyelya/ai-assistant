@@ -24,4 +24,18 @@ final class ChatListModel {
             context.rollback()
         }
     }
+
+    func deleteEmptyChats(in context: ModelContext, keeping ids: Set<UUID> = []) {
+        do {
+            let chats = try context.fetch(FetchDescriptor<Chat>())
+            let empty = chats.filter { $0.messages.isEmpty && !ids.contains($0.id) }
+            guard !empty.isEmpty else { return }
+            for chat in empty {
+                context.delete(chat)
+            }
+            try context.save()
+        } catch {
+            context.rollback()
+        }
+    }
 }

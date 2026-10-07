@@ -72,6 +72,16 @@ final class ChatScreenModel {
         requestTask?.cancel()
     }
 
+    func discardIfEmpty(_ chat: Chat, in context: ModelContext) {
+        guard chat.messages.isEmpty else { return }
+        context.delete(chat)
+        do {
+            try context.save()
+        } catch {
+            context.rollback()
+        }
+    }
+
     private func startStreaming(
         _ transcript: [ChatServiceMessage],
         in chat: Chat,

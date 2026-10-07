@@ -1,6 +1,9 @@
 import Foundation
 
 struct GroqChatService: ChatService, Sendable {
+    private static let model = "openai/gpt-oss-120b"
+    private static let systemPrompt = "Отвечай обычным текстом. Не используй заголовки, таблицы, цитаты и горизонтальные линии. Допустимы жирный, курсив, код в строке и простые списки."
+
     private let session: URLSession
 
     init(session: URLSession = .shared) {
@@ -57,10 +60,11 @@ struct GroqChatService: ChatService, Sendable {
         }
 
         let payload = CompletionRequest(
-            model: "openai/gpt-oss-120b",
+            model: Self.model,
             stream: true,
             reasoningEffort: "low",
-            messages: messages.map { CompletionMessage(role: $0.role, content: $0.content) }
+            messages: [CompletionMessage(role: "system", content: Self.systemPrompt)]
+                + messages.map { CompletionMessage(role: $0.role, content: $0.content) }
         )
 
         var request = URLRequest(url: url)

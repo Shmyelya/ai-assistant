@@ -24,6 +24,7 @@ private struct ChatScreen: View {
     @State private var followsBottom = true
     @State private var isAtBottom = true
     @State private var scrollPhase: ScrollPhase = .idle
+    @State private var didDiscardEmptyChat = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -54,6 +55,15 @@ private struct ChatScreen: View {
             guard requestOnAppear, !didRequestOnAppear, chat.messages.contains(where: { $0.role == .user }) else { return }
             didRequestOnAppear = true
             model.retry(in: chat, context: modelContext, using: service)
+        }
+        .onDisappear {
+            guard !didDiscardEmptyChat else { return }
+            didDiscardEmptyChat = true
+            let chat = chat
+            let context = modelContext
+            Task { @MainActor in
+                model.discardIfEmpty(chat, in: context)
+            }
         }
     }
 

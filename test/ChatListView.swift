@@ -23,7 +23,7 @@ struct ChatListView: View {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(chat.title)
                                         .font(.body)
-                                    Text(chat.updatedAt, style: .relative)
+                                    Text(ChatListTime.label(for: chat.updatedAt))
                                         .font(.subheadline)
                                         .foregroundStyle(.secondary)
                                 }
@@ -50,11 +50,29 @@ struct ChatListView: View {
                 ChatView(chatID: chatID)
             }
         }
+        .task {
+            model.deleteEmptyChats(in: modelContext, keeping: Set(path))
+        }
     }
 
     private func createChat() {
         guard let id = model.createChat(in: modelContext) else { return }
         path.append(id)
+    }
+}
+
+@MainActor
+private enum ChatListTime {
+    private static let formatter: RelativeDateTimeFormatter = {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.locale = Locale(identifier: "ru_RU")
+        formatter.unitsStyle = .short
+        formatter.dateTimeStyle = .named
+        return formatter
+    }()
+
+    static func label(for date: Date) -> String {
+        formatter.localizedString(for: date, relativeTo: .now)
     }
 }
 

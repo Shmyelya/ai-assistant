@@ -1,6 +1,7 @@
 name: test
 options:
   bundleIdPrefix: com.yelzhanyelikbayev
+  developmentLanguage: ru
   deploymentTarget:
     iOS: "18.0"
   createIntermediateGroups: true
