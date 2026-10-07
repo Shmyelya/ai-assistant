@@ -25,15 +25,14 @@ private struct ChatScreen: View {
     @State private var isAtBottom = true
     @State private var userIsDragging = false
     @State private var didDiscardEmptyChat = false
+    @State private var didScrollToEndOnOpen = false
     @State private var endScroll = 0
 
     private static let feedEndID = "feed-end"
+    private static let unansweredReply = "Ответ не получен"
 
     var body: some View {
-        VStack(spacing: 0) {
-            messages
-            composer
-        }
+        messages
         .navigationTitle(chat.title)
         .navigationBarTitleDisplayMode(.inline)
         .task(id: requestOnAppear ? chat.messages.count : 0) {
@@ -65,6 +64,9 @@ private struct ChatScreen: View {
                     Label("Напишите сообщение", systemImage: "bubble.left")
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    composer
+                }
             } else {
                 ScrollViewReader { proxy in
                     ScrollView {
@@ -78,15 +80,18 @@ private struct ChatScreen: View {
                                 }
                                 if let errorMessage = model.errorMessage {
                                     errorBanner(errorMessage)
+                                } else if showsUnansweredReply {
+                                    errorBanner(Self.unansweredReply)
                                 }
                             }
+                            .padding(.horizontal)
+                            .padding(.top, 12)
+                            .padding(.bottom, 12)
                             Color.clear
                                 .frame(height: 0)
                                 .id(Self.feedEndID)
                                 .accessibilityHidden(true)
                         }
-                        .padding(.horizontal)
-                        .padding(.vertical, 12)
                     }
                     .scrollDismissesKeyboard(.interactively)
                     .defaultScrollAnchor(.bottom, for: .initialOffset)
@@ -119,9 +124,30 @@ private struct ChatScreen: View {
                         guard message != nil else { return }
                         scrollToFeedEnd(proxy)
                     }
+                    .onAppear {
+                        guard !didScrollToEndOnOpen else { return }
+                        didScrollToEndOnOpen = true
+                        followsBottom = true
+                        Task { @MainActor in
+                            var transaction = Transaction()
+                            transaction.disablesAnimations = true
+                            withTransaction(transaction) {
+                                proxy.scrollTo(Self.feedEndID, anchor: .bottom)
+                            }
+                        }
+                    }
+                    .safeAreaInset(edge: .bottom, spacing: 0) {
+                        composer
+                    }
                 }
             }
         }
+    }
+
+    private var showsUnansweredReply: Bool {
+        guard !model.isGenerating else { return false }
+        let last = chat.messages.max { $0.createdAt < $1.createdAt }
+        return last?.role == .user
     }
 
     private var composer: some View {
