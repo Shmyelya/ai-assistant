@@ -12,7 +12,7 @@ struct ChatListView: View {
             Group {
                 if chats.isEmpty {
                     ContentUnavailableView {
-                        Text("Пока нет чатов")
+                        Label("Пока нет чатов", systemImage: "bubble.left.and.bubble.right")
                     } actions: {
                         Button("Новый чат", action: createChat)
                     }
@@ -23,7 +23,7 @@ struct ChatListView: View {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(chat.title)
                                         .font(.body)
-                                    Text(chat.updatedAt.formatted(date: .abbreviated, time: .shortened))
+                                    Text(chat.updatedAt, style: .relative)
                                         .font(.subheadline)
                                         .foregroundStyle(.secondary)
                                 }
@@ -40,7 +40,10 @@ struct ChatListView: View {
             .navigationTitle("Чаты")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Новый чат", action: createChat)
+                    Button(action: createChat) {
+                        Image(systemName: "square.and.pencil")
+                    }
+                    .accessibilityLabel("Новый чат")
                 }
             }
             .navigationDestination(for: UUID.self) { chatID in

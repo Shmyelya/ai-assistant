@@ -30,13 +30,18 @@ private struct ChatScreen: View {
             messages
             if let errorMessage = model.errorMessage {
                 HStack(alignment: .center, spacing: 12) {
-                    Text(errorMessage)
-                        .font(.subheadline)
-                        .foregroundStyle(.red)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Label {
+                        Text(errorMessage)
+                            .font(.subheadline)
+                            .foregroundStyle(.primary)
+                    } icon: {
+                        Image(systemName: "exclamationmark.circle")
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     Button("Повторить", action: retry)
-                        .font(.subheadline)
-                        .buttonStyle(.borderless)
+                        .buttonStyle(.bordered)
+                        .layoutPriority(1)
                 }
                 .padding(.horizontal)
                 .padding(.vertical, 8)
@@ -56,10 +61,10 @@ private struct ChatScreen: View {
         let items = chat.messages.sorted { $0.createdAt < $1.createdAt }
         return Group {
             if items.isEmpty && !model.isWaitingForText {
-                Text("Напишите сообщение")
-                    .font(.body)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                ContentUnavailableView {
+                    Label("Напишите сообщение", systemImage: "bubble.left")
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollViewReader { proxy in
                     ScrollView {
@@ -69,15 +74,13 @@ private struct ChatScreen: View {
                                     .id(message.id)
                             }
                             if model.isWaitingForText {
-                                HStack {
-                                    ProgressView()
-                                    Spacer(minLength: 48)
-                                }
+                                TypingIndicator()
                             }
                         }
                         .padding(.horizontal)
                         .padding(.vertical, 12)
                     }
+                    .scrollDismissesKeyboard(.interactively)
                     .defaultScrollAnchor(.bottom)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .onScrollGeometryChange(for: Bool.self) { geometry in
@@ -120,17 +123,10 @@ private struct ChatScreen: View {
                 .background(.fill.tertiary, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
 
             if model.isGenerating {
-                Button("Стоп", action: stop)
-                    .font(.body)
-                    .buttonStyle(.borderless)
+                ComposerButton(systemName: "stop.fill", label: "Стоп", action: stop)
             } else {
-                Button(action: send) {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .font(.title2)
-                }
-                .buttonStyle(.borderless)
-                .accessibilityLabel("Отправить")
-                .disabled(!model.canSend)
+                ComposerButton(systemName: "arrow.up", label: "Отправить", action: send)
+                    .disabled(!model.canSend)
             }
         }
         .padding(.horizontal)
@@ -181,26 +177,155 @@ private struct ChatScreen: View {
     }
 }
 
+private enum BubbleStyle {
+    static let cornerRadius: CGFloat = 18
+    static let maxWidthFraction: CGFloat = 0.8
+    static let horizontalPadding: CGFloat = 12
+    static let verticalPadding: CGFloat = 8
+
+    static func fill(isUser: Bool) -> Color {
+        isUser ? Color.accentColor : Color(.secondarySystemBackground)
+    }
+}
+
 private struct MessageBubble: View {
     let role: MessageRole
     let text: String
 
     var body: some View {
-        HStack {
-            if role == .user {
-                Spacer(minLength: 48)
-            }
+        BubbleWidthLayout(maxFraction: BubbleStyle.maxWidthFraction, alignTrailing: role == .user) {
+            bubbleText
+                .padding(.horizontal, BubbleStyle.horizontalPadding)
+                .padding(.vertical, BubbleStyle.verticalPadding)
+                .background(
+                    BubbleStyle.fill(isUser: role == .user),
+                    in: RoundedRectangle(cornerRadius: BubbleStyle.cornerRadius, style: .continuous)
+                )
+        }
+    }
 
-            Text(text)
+    @ViewBuilder
+    private var bubbleText: some View {
+        if role == .assistant {
+            messageText
                 .font(.body)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(.fill.tertiary, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .foregroundStyle(Color.primary)
+                .textSelection(.enabled)
+        } else {
+            messageText
+                .font(.body)
+                .foregroundStyle(Color.white)
+        }
+    }
 
-            if role == .assistant {
-                Spacer(minLength: 48)
+    private var messageText: Text {
+        if let attributed = assistantMarkdown {
+            Text(attributed)
+        } else {
+            Text(text)
+        }
+    }
+
+    private var assistantMarkdown: AttributedString? {
+        guard role == .assistant else { return nil }
+        let options = AttributedString.MarkdownParsingOptions(
+            interpretedSyntax: .inlineOnlyPreservingWhitespace,
+            failurePolicy: .throwError
+        )
+        return try? AttributedString(markdown: text, options: options)
+    }
+}
+
+private struct TypingIndicator: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        BubbleWidthLayout(maxFraction: BubbleStyle.maxWidthFraction, alignTrailing: false) {
+            bubble
+        }
+        .accessibilityHidden(true)
+    }
+
+    private var bubble: some View {
+        Group {
+            if reduceMotion {
+                dots(activeIndex: nil)
+            } else {
+                PhaseAnimator([0, 1, 2]) { phase in
+                    dots(activeIndex: phase)
+                } animation: { _ in
+                    .easeInOut(duration: 0.4)
+                }
             }
         }
+        .padding(.horizontal, BubbleStyle.horizontalPadding)
+        .padding(.vertical, BubbleStyle.verticalPadding)
+        .background(
+            BubbleStyle.fill(isUser: false),
+            in: RoundedRectangle(cornerRadius: BubbleStyle.cornerRadius, style: .continuous)
+        )
+    }
+
+    private func dots(activeIndex: Int?) -> some View {
+        HStack(spacing: 5) {
+            ForEach(0..<3, id: \.self) { index in
+                Circle()
+                    .fill(Color.secondary)
+                    .frame(width: 8, height: 8)
+                    .scaleEffect(activeIndex == index ? 1.6 : 1)
+            }
+        }
+    }
+}
+
+private struct ComposerButton: View {
+    let systemName: String
+    let label: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Color.white)
+                .frame(width: 36, height: 36)
+                .background(Color.accentColor, in: Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+    }
+}
+
+private struct BubbleWidthLayout: Layout {
+    var maxFraction: CGFloat
+    var alignTrailing: Bool
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let subview = subviews.first else { return .zero }
+        let maxWidth = maximumWidth(for: proposal.width)
+        let child = subview.sizeThatFits(ProposedViewSize(width: maxWidth, height: proposal.height))
+        let width = proposal.width ?? child.width
+        return CGSize(width: width, height: child.height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard let subview = subviews.first else { return }
+        let availableWidth = bounds.width > 0 ? bounds.width : proposal.width
+        let maxWidth = maximumWidth(for: availableWidth)
+        let measurement = ProposedViewSize(width: maxWidth, height: nil)
+        let size = subview.sizeThatFits(measurement)
+        let fittedWidth = min(size.width, maxWidth ?? size.width)
+        let x = alignTrailing ? bounds.maxX - fittedWidth : bounds.minX
+        subview.place(
+            at: CGPoint(x: x, y: bounds.minY),
+            anchor: .topLeading,
+            proposal: ProposedViewSize(width: fittedWidth, height: size.height)
+        )
+    }
+
+    private func maximumWidth(for width: CGFloat?) -> CGFloat? {
+        guard let width, width.isFinite else { return nil }
+        return width * maxFraction
     }
 }
 
