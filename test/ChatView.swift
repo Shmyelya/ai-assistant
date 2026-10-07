@@ -41,6 +41,9 @@ private struct ChatScreen: View {
             didRequestOnAppear = true
             model.retry(in: chat, context: modelContext, using: service)
         }
+        .task {
+            model.removeEmptyAssistantMessages(in: chat, context: modelContext)
+        }
         .onDisappear {
             guard !didDiscardEmptyChat else { return }
             didDiscardEmptyChat = true
@@ -55,6 +58,7 @@ private struct ChatScreen: View {
 
     private var messages: some View {
         let items = chat.messages.sorted { $0.createdAt < $1.createdAt }
+        let visibleMessages = items.filter { !displayText(for: $0).isEmpty }
         return Group {
             if items.isEmpty && !model.isWaitingForText {
                 ContentUnavailableView {
@@ -64,19 +68,20 @@ private struct ChatScreen: View {
             } else {
                 ScrollViewReader { proxy in
                     ScrollView {
-                        LazyVStack(spacing: 12) {
-                            ForEach(items) { message in
-                                MessageBubble(role: message.role, text: displayText(for: message))
-                            }
-                            if model.isWaitingForText {
-                                TypingIndicator()
-                            }
-                            if let errorMessage = model.errorMessage {
-                                errorBanner(errorMessage)
+                        VStack(spacing: 0) {
+                            VStack(spacing: 12) {
+                                ForEach(visibleMessages) { message in
+                                    MessageBubble(role: message.role, text: displayText(for: message))
+                                }
+                                if model.isWaitingForText {
+                                    TypingIndicator()
+                                }
+                                if let errorMessage = model.errorMessage {
+                                    errorBanner(errorMessage)
+                                }
                             }
                             Color.clear
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 1)
+                                .frame(height: 0)
                                 .id(Self.feedEndID)
                                 .accessibilityHidden(true)
                         }
@@ -84,15 +89,9 @@ private struct ChatScreen: View {
                         .padding(.vertical, 12)
                     }
                     .scrollDismissesKeyboard(.interactively)
-                    .defaultScrollAnchor(.bottom)
+                    .defaultScrollAnchor(.bottom, for: .initialOffset)
+                    .defaultScrollAnchor(.top, for: .alignment)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .onAppear {
-                        followsBottom = true
-                        Task { @MainActor in
-                            followsBottom = true
-                            proxy.scrollTo(Self.feedEndID, anchor: .bottom)
-                        }
-                    }
                     .onScrollGeometryChange(for: Bool.self) { geometry in
                         Self.nearBottom(geometry)
                     } action: { _, atBottom in

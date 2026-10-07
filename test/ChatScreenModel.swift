@@ -72,6 +72,19 @@ final class ChatScreenModel {
         requestTask?.cancel()
     }
 
+    func removeEmptyAssistantMessages(in chat: Chat, context: ModelContext) {
+        let empty = chat.messages.filter { $0.role == .assistant && $0.text.isEmpty }
+        guard !empty.isEmpty else { return }
+        for message in empty {
+            context.delete(message)
+        }
+        do {
+            try context.save()
+        } catch {
+            context.rollback()
+        }
+    }
+
     func discardIfEmpty(_ chat: Chat, in context: ModelContext) {
         guard chat.messages.isEmpty else { return }
         context.delete(chat)
@@ -128,8 +141,10 @@ final class ChatScreenModel {
     }
 
     private func append(_ delta: String, to chat: Chat, context: ModelContext) throws {
+        accumulated += delta
+        guard !accumulated.isEmpty else { return }
         if replyMessage == nil {
-            let message = Message(role: .assistant, text: delta)
+            let message = Message(role: .assistant, text: accumulated)
             context.insert(message)
             message.chat = chat
             if !chat.messages.contains(where: { $0.id == message.id }) {
@@ -138,15 +153,25 @@ final class ChatScreenModel {
             replyMessage = message
             streamingMessageID = message.id
             isWaitingForText = false
-            accumulated = delta
-        } else {
-            accumulated += delta
         }
         streamingText = accumulated
         try persist(in: chat, context: context, force: false)
     }
 
     private func saveAfterInterruption(in chat: Chat, context: ModelContext) {
+        if accumulated.isEmpty, let replyMessage {
+            context.delete(replyMessage)
+            self.replyMessage = nil
+            streamingMessageID = nil
+            streamingText = ""
+            do {
+                try context.save()
+            } catch {
+                context.rollback()
+                errorMessage = Self.requestFailure
+            }
+            return
+        }
         do {
             try persist(in: chat, context: context, force: true)
         } catch {
