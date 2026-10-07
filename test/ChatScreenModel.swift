@@ -9,7 +9,6 @@ final class ChatScreenModel {
     private(set) var isWaitingForText = false
     private(set) var streamingMessageID: UUID?
     private(set) var streamingText = ""
-    private(set) var scrollTick = 0
 
     private(set) var isGenerating = false
     private var accumulated = ""
@@ -87,7 +86,6 @@ final class ChatScreenModel {
         streamingText = ""
         isWaitingForText = true
         isGenerating = true
-        scrollTick += 1
 
         let stream = service.streamReply(to: transcript)
         requestTask = Task {
@@ -135,7 +133,6 @@ final class ChatScreenModel {
             accumulated += delta
         }
         streamingText = accumulated
-        scrollTick += 1
         try persist(in: chat, context: context, force: false)
     }
 

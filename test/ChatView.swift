@@ -21,12 +21,9 @@ private struct ChatScreen: View {
     var requestOnAppear = false
     @State private var model = ChatScreenModel()
     @State private var didRequestOnAppear = false
-    @State private var followsBottom = false
+    @State private var followsBottom = true
+    @State private var isAtBottom = true
     @State private var scrollPhase: ScrollPhase = .idle
-    @State private var didReadScrollPosition = false
-    @State private var lastScrollSample = ScrollSample()
-
-    private let loadingAnchor = "loading"
 
     var body: some View {
         VStack(spacing: 0) {
@@ -76,32 +73,35 @@ private struct ChatScreen: View {
                                     ProgressView()
                                     Spacer(minLength: 48)
                                 }
-                                .id(loadingAnchor)
                             }
                         }
                         .padding(.horizontal)
                         .padding(.vertical, 12)
                     }
+                    .defaultScrollAnchor(.bottom)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .defaultScrollAnchor(followsBottom ? .bottom : nil, for: .sizeChanges)
+                    .onScrollGeometryChange(for: Bool.self) { geometry in
+                        Self.nearBottom(geometry)
+                    } action: { _, atBottom in
+                        isAtBottom = atBottom
+                    }
                     .onScrollPhaseChange { oldPhase, newPhase, context in
                         scrollPhase = newPhase
-                        let gestureSettled = newPhase == .idle && isUserDriven(oldPhase)
-                        guard isUserDriven(newPhase) || gestureSettled else { return }
-                        updateFollow(ScrollSample(context.geometry), userDriven: true)
+                        updateFollow(
+                            phase: newPhase,
+                            previous: oldPhase,
+                            atBottom: Self.nearBottom(context.geometry)
+                        )
                     }
-                    .onScrollGeometryChange(for: ScrollSample.self) { geometry in
-                        ScrollSample(geometry)
-                    } action: { _, sample in
-                        updateFollow(sample, userDriven: isUserDriven(scrollPhase))
-                    }
-                    .onChange(of: model.scrollTick) { _, _ in
-                        guard followsBottom else { return }
-                        if model.isWaitingForText {
-                            proxy.scrollTo(loadingAnchor, anchor: .bottom)
-                        } else if let lastID = items.last?.id {
-                            proxy.scrollTo(lastID, anchor: .bottom)
+                    .onChange(of: isAtBottom) { _, atBottom in
+                        guard scrollPhase == .interacting || scrollPhase == .decelerating else { return }
+                        if !atBottom {
+                            followsBottom = false
                         }
+                    }
+                    .onChange(of: model.streamingText) { _, text in
+                        guard followsBottom, !text.isEmpty, let lastID = items.last?.id else { return }
+                        proxy.scrollTo(lastID, anchor: .bottom)
                     }
                 }
             }
@@ -150,28 +150,25 @@ private struct ChatScreen: View {
         model.send(in: chat, context: modelContext, using: service)
     }
 
-    private func isUserDriven(_ phase: ScrollPhase) -> Bool {
-        phase == .tracking || phase == .interacting || phase == .decelerating
+    private static func nearBottom(_ geometry: ScrollGeometry) -> Bool {
+        let threshold: CGFloat = 40
+        if geometry.contentSize.height <= geometry.containerSize.height + threshold {
+            return true
+        }
+        return geometry.contentSize.height - geometry.visibleRect.maxY <= threshold
     }
 
-    private func updateFollow(_ new: ScrollSample, userDriven: Bool) {
-        let old = lastScrollSample
-        lastScrollSample = new
-
-        if userDriven {
-            if new.nearBottom {
-                followsBottom = true
-            } else if new.offsetY < old.offsetY - 1 {
+    private func updateFollow(phase: ScrollPhase, previous: ScrollPhase, atBottom: Bool) {
+        if phase == .interacting || phase == .decelerating {
+            if !atBottom {
                 followsBottom = false
             }
-            didReadScrollPosition = true
             return
         }
-
-        guard !didReadScrollPosition, new.contentHeight > 0, new.containerHeight > 0 else { return }
-        didReadScrollPosition = true
-        if !model.isGenerating {
-            followsBottom = new.nearBottom
+        if phase == .idle,
+           previous == .interacting || previous == .decelerating,
+           atBottom {
+            followsBottom = true
         }
     }
 
@@ -181,25 +178,6 @@ private struct ChatScreen: View {
 
     private func stop() {
         model.stop()
-    }
-}
-
-private struct ScrollSample: Equatable {
-    var nearBottom = true
-    var contentHeight: CGFloat = 0
-    var containerHeight: CGFloat = 0
-    var offsetY: CGFloat = 0
-
-    init() {}
-
-    init(_ geometry: ScrollGeometry) {
-        let threshold: CGFloat = 24
-        contentHeight = geometry.contentSize.height
-        containerHeight = geometry.containerSize.height
-        offsetY = geometry.contentOffset.y
-        let fits = contentHeight <= containerHeight + threshold
-        let distanceFromBottom = contentHeight - geometry.visibleRect.maxY
-        nearBottom = fits || distanceFromBottom <= threshold
     }
 }
 
