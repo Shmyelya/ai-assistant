@@ -65,6 +65,7 @@ struct GroqChatService: ChatService, Sendable {
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
+        request.timeoutInterval = 15
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
         request.httpBody = try JSONEncoder().encode(payload)
@@ -98,7 +99,8 @@ struct GroqChatService: ChatService, Sendable {
              .dataNotAllowed,
              .cannotFindHost,
              .cannotConnectToHost,
-             .dnsLookupFailed:
+             .dnsLookupFailed,
+             .timedOut:
             return true
         default:
             return false
