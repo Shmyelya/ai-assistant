@@ -71,12 +71,18 @@ struct GroqChatService: ChatService, Sendable {
         request.httpBody = try JSONEncoder().encode(payload)
 
         let (bytes, response) = try await session.bytes(for: request)
-        try validate(response)
+        guard let http = response as? HTTPURLResponse else {
+            throw ChatServiceError.failed
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            let body = try await responseBody(from: bytes)
+            throw groqChatFailure(statusCode: http.statusCode, body: body)
+        }
 
         let decoder = JSONDecoder()
         for try await line in bytes.lines {
             try Task.checkCancellation()
-            guard let event = try ServerSentEvent.parse(line: line, decoder: decoder) else { continue }
+            guard let event = try ServerSentEvent.parse(line: line, statusCode: http.statusCode, decoder: decoder) else { continue }
             switch event {
             case .done:
                 return
@@ -86,10 +92,13 @@ struct GroqChatService: ChatService, Sendable {
         }
     }
 
-    private static func validate(_ response: URLResponse) throws {
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw ChatServiceError.failed
+    private static func responseBody(from bytes: URLSession.AsyncBytes) async throws -> String {
+        var data = Data()
+        for try await byte in bytes {
+            try Task.checkCancellation()
+            data.append(byte)
         }
+        return String(decoding: data, as: UTF8.self)
     }
 
     private static func isNoNetwork(_ error: URLError) -> Bool {
@@ -106,6 +115,27 @@ struct GroqChatService: ChatService, Sendable {
             return false
         }
     }
+}
+
+func groqChatFailure(statusCode: Int, body: String) -> ChatServiceError {
+    if statusCode == 429 || bodyDescribesQuotaOrLimitExhaustion(body) {
+        return .apiLimit
+    }
+    return .failed
+}
+
+private func bodyDescribesQuotaOrLimitExhaustion(_ body: String) -> Bool {
+    let text = body.lowercased()
+    if text.contains("quota") {
+        return true
+    }
+    if text.contains("rate_limit") || text.contains("rate limit") || text.contains("rate-limit") {
+        return true
+    }
+    if text.contains("too many requests") {
+        return true
+    }
+    return text.contains("limit exceeded") || text.contains("limit reached")
 }
 
 private struct CompletionRequest: Encodable {
@@ -131,7 +161,7 @@ private enum ServerSentEvent {
     case done
     case text(String)
 
-    static func parse(line: String, decoder: JSONDecoder) throws -> ServerSentEvent? {
+    static func parse(line: String, statusCode: Int, decoder: JSONDecoder) throws -> ServerSentEvent? {
         let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.hasPrefix("data:") else { return nil }
 
@@ -152,7 +182,7 @@ private enum ServerSentEvent {
             return nil
         }
         if chunk.error != nil {
-            throw ChatServiceError.failed
+            throw groqChatFailure(statusCode: statusCode, body: jsonText)
         }
         let text = chunk.choices?.compactMap { $0.delta?.content }.joined() ?? ""
         guard !text.isEmpty else { return nil }

@@ -18,6 +18,7 @@ final class ChatScreenModel {
     private var requestTask: Task<Void, Never>?
 
     private static let noNetwork = "Нет сети"
+    private static let apiLimit = "Кончился лимит API"
     private static let requestFailure = "Не удалось получить ответ"
     private static let saveInterval: Duration = .milliseconds(500)
 
@@ -173,6 +174,8 @@ final class ChatScreenModel {
         switch error {
         case .noNetwork:
             Self.noNetwork
+        case .apiLimit:
+            Self.apiLimit
         case .failed:
             Self.requestFailure
         }

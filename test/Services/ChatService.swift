@@ -7,6 +7,7 @@ struct ChatServiceMessage: Sendable {
 
 enum ChatServiceError: Error, Sendable {
     case noNetwork
+    case apiLimit
     case failed
 }
 
