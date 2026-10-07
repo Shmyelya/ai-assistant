@@ -89,13 +89,19 @@ private struct ChatScreen: View {
                 .padding(.vertical, 8)
                 .background(.fill.tertiary, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
 
-            Button(action: send) {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.title2)
+            if model.isGenerating {
+                Button("Стоп", action: stop)
+                    .font(.body)
+                    .buttonStyle(.borderless)
+            } else {
+                Button(action: send) {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.title2)
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel("Отправить")
+                .disabled(!model.canSend)
             }
-            .buttonStyle(.borderless)
-            .accessibilityLabel("Отправить")
-            .disabled(!model.canSend)
         }
         .padding(.horizontal)
         .padding(.vertical, 8)
@@ -111,6 +117,10 @@ private struct ChatScreen: View {
 
     private func send() {
         model.send(in: chat, context: modelContext, using: service)
+    }
+
+    private func stop() {
+        model.stop()
     }
 }
 

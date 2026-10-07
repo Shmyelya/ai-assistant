@@ -11,7 +11,7 @@ final class ChatScreenModel {
     private(set) var streamingText = ""
     private(set) var scrollTick = 0
 
-    private var isGenerating = false
+    private(set) var isGenerating = false
     private var accumulated = ""
     private var lastPersistedAt: ContinuousClock.Instant?
     private var replyMessage: Message?
@@ -67,6 +67,10 @@ final class ChatScreenModel {
         requestTask = Task {
             await consume(stream: stream, chat: chat, context: context)
         }
+    }
+
+    func stop() {
+        requestTask?.cancel()
     }
 
     private func consume(
