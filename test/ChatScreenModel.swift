@@ -17,6 +17,7 @@ final class ChatScreenModel {
     private var replyMessage: Message?
     private var requestTask: Task<Void, Never>?
 
+    private static let noNetwork = "Нет сети"
     private static let requestFailure = "Не удалось получить ответ"
     private static let saveInterval: Duration = .milliseconds(500)
 
@@ -49,6 +50,34 @@ final class ChatScreenModel {
         }
 
         draft = ""
+        let transcript = chat.messages
+            .sorted { $0.createdAt < $1.createdAt }
+            .map { ChatServiceMessage(role: $0.role.rawValue, content: $0.text) }
+        startStreaming(transcript, in: chat, context: context, using: service)
+    }
+
+    func retry(in chat: Chat, context: ModelContext, using service: any ChatService) {
+        guard !isGenerating else { return }
+
+        let sorted = chat.messages.sorted { $0.createdAt < $1.createdAt }
+        guard let lastUserIndex = sorted.lastIndex(where: { $0.role == .user }) else { return }
+
+        let transcript = sorted[...lastUserIndex].map { message in
+            ChatServiceMessage(role: message.role.rawValue, content: message.text)
+        }
+        startStreaming(transcript, in: chat, context: context, using: service)
+    }
+
+    func stop() {
+        requestTask?.cancel()
+    }
+
+    private func startStreaming(
+        _ transcript: [ChatServiceMessage],
+        in chat: Chat,
+        context: ModelContext,
+        using service: any ChatService
+    ) {
         errorMessage = nil
         accumulated = ""
         lastPersistedAt = nil
@@ -59,18 +88,10 @@ final class ChatScreenModel {
         isGenerating = true
         scrollTick += 1
 
-        let transcript = chat.messages
-            .sorted { $0.createdAt < $1.createdAt }
-            .map { ChatServiceMessage(role: $0.role.rawValue, content: $0.text) }
         let stream = service.streamReply(to: transcript)
-
         requestTask = Task {
             await consume(stream: stream, chat: chat, context: context)
         }
-    }
-
-    func stop() {
-        requestTask?.cancel()
     }
 
     private func consume(
@@ -88,6 +109,9 @@ final class ChatScreenModel {
             try persist(in: chat, context: context, force: true)
         } catch is CancellationError {
             saveAfterInterruption(in: chat, context: context)
+        } catch let error as ChatServiceError {
+            saveAfterInterruption(in: chat, context: context)
+            errorMessage = message(for: error)
         } catch {
             saveAfterInterruption(in: chat, context: context)
             errorMessage = Self.requestFailure
@@ -143,6 +167,15 @@ final class ChatScreenModel {
         streamingText = ""
         replyMessage = nil
         requestTask = nil
+    }
+
+    private func message(for error: ChatServiceError) -> String {
+        switch error {
+        case .noNetwork:
+            Self.noNetwork
+        case .failed:
+            Self.requestFailure
+        }
     }
 
     private var trimmedDraft: String {

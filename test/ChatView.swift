@@ -25,12 +25,17 @@ private struct ChatScreen: View {
         VStack(spacing: 0) {
             messages
             if let errorMessage = model.errorMessage {
-                Text(errorMessage)
-                    .font(.subheadline)
-                    .foregroundStyle(.red)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal)
-                    .padding(.vertical, 8)
+                HStack(alignment: .center, spacing: 12) {
+                    Text(errorMessage)
+                        .font(.subheadline)
+                        .foregroundStyle(.red)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Button("Повторить", action: retry)
+                        .font(.subheadline)
+                        .buttonStyle(.borderless)
+                }
+                .padding(.horizontal)
+                .padding(.vertical, 8)
             }
             composer
         }
@@ -117,6 +122,10 @@ private struct ChatScreen: View {
 
     private func send() {
         model.send(in: chat, context: modelContext, using: service)
+    }
+
+    private func retry() {
+        model.retry(in: chat, context: modelContext, using: service)
     }
 
     private func stop() {

@@ -29,8 +29,14 @@ struct GroqChatService: ChatService, Sendable {
             continuation.finish()
         } catch is CancellationError {
             continuation.finish()
-        } catch let error as URLError where error.code == .cancelled {
-            continuation.finish()
+        } catch let error as URLError {
+            if error.code == .cancelled {
+                continuation.finish()
+            } else if Self.isNoNetwork(error) {
+                continuation.finish(throwing: ChatServiceError.noNetwork)
+            } else {
+                continuation.finish(throwing: ChatServiceError.failed)
+            }
         } catch let error as ChatServiceError {
             continuation.finish(throwing: error)
         } catch {
@@ -82,6 +88,20 @@ struct GroqChatService: ChatService, Sendable {
     private static func validate(_ response: URLResponse) throws {
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw ChatServiceError.failed
+        }
+    }
+
+    private static func isNoNetwork(_ error: URLError) -> Bool {
+        switch error.code {
+        case .notConnectedToInternet,
+             .networkConnectionLost,
+             .dataNotAllowed,
+             .cannotFindHost,
+             .cannotConnectToHost,
+             .dnsLookupFailed:
+            return true
+        default:
+            return false
         }
     }
 }
