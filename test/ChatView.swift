@@ -23,7 +23,7 @@ private struct ChatScreen: View {
     @State private var didRequestOnAppear = false
     @State private var followsBottom = true
     @State private var isAtBottom = true
-    @State private var scrollPhase: ScrollPhase = .idle
+    @State private var userIsDragging = false
     @State private var didDiscardEmptyChat = false
     @State private var endScroll = 0
 
@@ -44,6 +44,7 @@ private struct ChatScreen: View {
         .onDisappear {
             guard !didDiscardEmptyChat else { return }
             didDiscardEmptyChat = true
+            model.stop()
             let chat = chat
             let context = modelContext
             Task { @MainActor in
@@ -66,7 +67,6 @@ private struct ChatScreen: View {
                         LazyVStack(spacing: 12) {
                             ForEach(items) { message in
                                 MessageBubble(role: message.role, text: displayText(for: message))
-                                    .id(message.id)
                             }
                             if model.isWaitingForText {
                                 TypingIndicator()
@@ -86,13 +86,19 @@ private struct ChatScreen: View {
                     .scrollDismissesKeyboard(.interactively)
                     .defaultScrollAnchor(.bottom)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .onAppear {
+                        followsBottom = true
+                        Task { @MainActor in
+                            followsBottom = true
+                            proxy.scrollTo(Self.feedEndID, anchor: .bottom)
+                        }
+                    }
                     .onScrollGeometryChange(for: Bool.self) { geometry in
                         Self.nearBottom(geometry)
                     } action: { _, atBottom in
                         isAtBottom = atBottom
                     }
                     .onScrollPhaseChange { oldPhase, newPhase, context in
-                        scrollPhase = newPhase
                         updateFollow(
                             phase: newPhase,
                             previous: oldPhase,
@@ -100,10 +106,8 @@ private struct ChatScreen: View {
                         )
                     }
                     .onChange(of: isAtBottom) { _, atBottom in
-                        guard scrollPhase == .interacting || scrollPhase == .decelerating else { return }
-                        if !atBottom {
-                            followsBottom = false
-                        }
+                        guard userIsDragging, !atBottom else { return }
+                        followsBottom = false
                     }
                     .onChange(of: endScroll) { _, _ in
                         scrollToFeedEnd(proxy)
@@ -166,16 +170,24 @@ private struct ChatScreen: View {
     }
 
     private func updateFollow(phase: ScrollPhase, previous: ScrollPhase, atBottom: Bool) {
-        if phase == .interacting || phase == .decelerating {
+        if phase == .interacting {
+            userIsDragging = true
             if !atBottom {
                 followsBottom = false
             }
             return
         }
-        if phase == .idle,
-           previous == .interacting || previous == .decelerating,
-           atBottom {
-            followsBottom = true
+        if phase == .decelerating {
+            if userIsDragging, !atBottom {
+                followsBottom = false
+            }
+            return
+        }
+        if phase == .idle {
+            userIsDragging = false
+            if previous == .interacting || previous == .decelerating, atBottom {
+                followsBottom = true
+            }
         }
     }
 
