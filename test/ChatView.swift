@@ -25,28 +25,13 @@ private struct ChatScreen: View {
     @State private var isAtBottom = true
     @State private var scrollPhase: ScrollPhase = .idle
     @State private var didDiscardEmptyChat = false
+    @State private var endScroll = 0
+
+    private static let feedEndID = "feed-end"
 
     var body: some View {
         VStack(spacing: 0) {
             messages
-            if let errorMessage = model.errorMessage {
-                HStack(alignment: .center, spacing: 12) {
-                    Label {
-                        Text(errorMessage)
-                            .font(.subheadline)
-                            .foregroundStyle(.primary)
-                    } icon: {
-                        Image(systemName: "exclamationmark.circle")
-                            .foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    Button("Повторить", action: retry)
-                        .buttonStyle(.bordered)
-                        .layoutPriority(1)
-                }
-                .padding(.horizontal)
-                .padding(.vertical, 8)
-            }
             composer
         }
         .navigationTitle(chat.title)
@@ -86,6 +71,14 @@ private struct ChatScreen: View {
                             if model.isWaitingForText {
                                 TypingIndicator()
                             }
+                            if let errorMessage = model.errorMessage {
+                                errorBanner(errorMessage)
+                            }
+                            Color.clear
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 1)
+                                .id(Self.feedEndID)
+                                .accessibilityHidden(true)
                         }
                         .padding(.horizontal)
                         .padding(.vertical, 12)
@@ -112,9 +105,16 @@ private struct ChatScreen: View {
                             followsBottom = false
                         }
                     }
+                    .onChange(of: endScroll) { _, _ in
+                        scrollToFeedEnd(proxy)
+                    }
                     .onChange(of: model.streamingText) { _, text in
-                        guard followsBottom, !text.isEmpty, let lastID = items.last?.id else { return }
-                        proxy.scrollTo(lastID, anchor: .bottom)
+                        guard !text.isEmpty else { return }
+                        scrollToFeedEnd(proxy)
+                    }
+                    .onChange(of: model.errorMessage) { _, message in
+                        guard message != nil else { return }
+                        scrollToFeedEnd(proxy)
                     }
                 }
             }
@@ -154,6 +154,7 @@ private struct ChatScreen: View {
     private func send() {
         followsBottom = true
         model.send(in: chat, context: modelContext, using: service)
+        endScroll += 1
     }
 
     private static func nearBottom(_ geometry: ScrollGeometry) -> Bool {
@@ -179,7 +180,34 @@ private struct ChatScreen: View {
     }
 
     private func retry() {
+        followsBottom = true
         model.retry(in: chat, context: modelContext, using: service)
+        endScroll += 1
+    }
+
+    private func scrollToFeedEnd(_ proxy: ScrollViewProxy) {
+        guard followsBottom else { return }
+        Task { @MainActor in
+            guard followsBottom else { return }
+            proxy.scrollTo(Self.feedEndID, anchor: .bottom)
+        }
+    }
+
+    private func errorBanner(_ message: String) -> some View {
+        HStack(alignment: .center, spacing: 12) {
+            Label {
+                Text(message)
+                    .font(.subheadline)
+                    .foregroundStyle(.primary)
+            } icon: {
+                Image(systemName: "exclamationmark.circle")
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Button("Повторить", action: retry)
+                .buttonStyle(.bordered)
+                .layoutPriority(1)
+        }
     }
 
     private func stop() {
