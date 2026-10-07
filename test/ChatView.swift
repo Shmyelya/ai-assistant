@@ -3,11 +3,12 @@ import SwiftUI
 
 struct ChatView: View {
     let chatID: UUID
+    var service: any ChatService = GroqChatService()
     @Query private var chats: [Chat]
 
     var body: some View {
         if let chat = chats.first(where: { $0.id == chatID }) {
-            ChatScreen(chat: chat)
+            ChatScreen(chat: chat, service: service)
         }
     }
 }
@@ -15,11 +16,22 @@ struct ChatView: View {
 private struct ChatScreen: View {
     @Environment(\.modelContext) private var modelContext
     @Bindable var chat: Chat
+    let service: any ChatService
     @State private var model = ChatScreenModel()
+
+    private let loadingAnchor = "loading"
 
     var body: some View {
         VStack(spacing: 0) {
             messages
+            if let errorMessage = model.errorMessage {
+                Text(errorMessage)
+                    .font(.subheadline)
+                    .foregroundStyle(.red)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal)
+                    .padding(.vertical, 8)
+            }
             composer
         }
         .navigationTitle(chat.title)
@@ -29,22 +41,39 @@ private struct ChatScreen: View {
     private var messages: some View {
         let items = chat.messages.sorted { $0.createdAt < $1.createdAt }
         return Group {
-            if items.isEmpty {
+            if items.isEmpty && !model.isWaitingForText {
                 Text("Напишите сообщение")
                     .font(.body)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 12) {
-                        ForEach(items) { message in
-                            MessageBubble(message: message)
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(spacing: 12) {
+                            ForEach(items) { message in
+                                MessageBubble(role: message.role, text: displayText(for: message))
+                                    .id(message.id)
+                            }
+                            if model.isWaitingForText {
+                                HStack {
+                                    ProgressView()
+                                    Spacer(minLength: 48)
+                                }
+                                .id(loadingAnchor)
+                            }
+                        }
+                        .padding(.horizontal)
+                        .padding(.vertical, 12)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .onChange(of: model.scrollTick) { _, _ in
+                        if model.isWaitingForText {
+                            proxy.scrollTo(loadingAnchor, anchor: .bottom)
+                        } else if let lastID = items.last?.id {
+                            proxy.scrollTo(lastID, anchor: .bottom)
                         }
                     }
-                    .padding(.horizontal)
-                    .padding(.vertical, 12)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
     }
@@ -73,27 +102,35 @@ private struct ChatScreen: View {
         .background(.bar)
     }
 
+    private func displayText(for message: Message) -> String {
+        if message.id == model.streamingMessageID {
+            return model.streamingText
+        }
+        return message.text
+    }
+
     private func send() {
-        model.send(in: chat, context: modelContext)
+        model.send(in: chat, context: modelContext, using: service)
     }
 }
 
 private struct MessageBubble: View {
-    let message: Message
+    let role: MessageRole
+    let text: String
 
     var body: some View {
         HStack {
-            if message.role == .user {
+            if role == .user {
                 Spacer(minLength: 48)
             }
 
-            Text(message.text)
+            Text(text)
                 .font(.body)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 .background(.fill.tertiary, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
 
-            if message.role == .assistant {
+            if role == .assistant {
                 Spacer(minLength: 48)
             }
         }
