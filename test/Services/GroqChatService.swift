@@ -4,17 +4,10 @@ struct GroqChatService: ChatService, Sendable {
     private static let model = "openai/gpt-oss-120b"
     private static let systemPrompt = "Отвечай обычным текстом. Не используй заголовки, таблицы, цитаты и горизонтальные линии. Допустимы жирный, курсив, код в строке и простые списки."
 
-    private let session: URLSession
-
-    init(session: URLSession = .shared) {
-        self.session = session
-    }
-
     func streamReply(to messages: [ChatServiceMessage]) -> AsyncThrowingStream<String, any Error> {
-        let session = session
-        return AsyncThrowingStream { continuation in
+        AsyncThrowingStream { continuation in
             let task = Task {
-                await Self.deliver(messages: messages, session: session, continuation: continuation)
+                await Self.deliver(messages: messages, continuation: continuation)
             }
             continuation.onTermination = { @Sendable _ in
                 task.cancel()
@@ -24,9 +17,10 @@ struct GroqChatService: ChatService, Sendable {
 
     private static func deliver(
         messages: [ChatServiceMessage],
-        session: URLSession,
         continuation: AsyncThrowingStream<String, any Error>.Continuation
     ) async {
+        let session = makeSession()
+        defer { session.finishTasksAndInvalidate() }
         do {
             try await streamBody(messages: messages, session: session, continuation: continuation)
             continuation.finish()
@@ -103,6 +97,15 @@ struct GroqChatService: ChatService, Sendable {
             data.append(byte)
         }
         return String(decoding: data, as: UTF8.self)
+    }
+
+    private static func makeSession() -> URLSession {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 15
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        configuration.urlCache = nil
+        configuration.httpCookieStorage = nil
+        return URLSession(configuration: configuration)
     }
 
     private static func isNoNetwork(_ error: URLError) -> Bool {
